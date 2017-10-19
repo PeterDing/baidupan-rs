@@ -1,0 +1,18 @@
+[package]
+name = "baidu-pan-api"
+version = "0.1.0"
+authors = ["PeterDing <dfhayst@gmail.com>"]
+
+[dependencies]
+lazy_static = "0.2"
+time = "0.1"
+rand = "0.3"
+reqwest = "0.8"
+hyper = "0.11"
+url = "1.5"
+cookie = { version = "0.10", features = ["secure", "percent-encode"] }
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+rust-crypto = "0.2"
+crc = "1.5"
