@@ -846,6 +846,7 @@ impl Api {
         Ok(v)
     }
 
+    #[inline]
     pub fn upload_one_file(&self, local_path: &str, dir: &str) -> io::Result<JsonValue> {
         let lpath = Path::new(local_path);
         let filename = lpath.file_name().unwrap();
@@ -877,6 +878,7 @@ impl Api {
         Ok(v)
     }
 
+    #[inline]
     pub fn upload_slice(&self, block: &[u8], size: usize) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             CPCS_URL,
@@ -912,8 +914,34 @@ impl Api {
         Ok(v)
     }
 
-    //pub fn combine_file(&self, local_path: &str, remote_path: &str) -> io::Result<JsonValue> {
-    //}
+    pub fn combine_file<T: Serialize>(&self, remote_path: &str, slice_md5s: &T) -> io::Result<JsonValue> {
+        let url = Url::parse_with_params(
+            CPCS_URL,
+            &[
+                ("app_id", "250528"),
+                ("path", remote_path),
+                ("ondup", "overwrite"),
+                ("method", "createsuperfile"),
+                ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
+            ]).unwrap();
+        let headers = self.build_headers(None);
+        let mut resp = self.client.post(url)
+            .headers(headers)
+            .form(
+                &[
+                    ("param", format!("{{\"block_list\":{}}}", serde_json::to_string(slice_md5s).unwrap())),
+                ])
+            .send()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        if !resp.status().is_success() {
+            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+        }
+        let v = resp.json::<JsonValue>()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        Ok(v)
+    }
+
+    //pub fn share_()
 
 }
 
