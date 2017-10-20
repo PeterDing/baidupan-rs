@@ -70,8 +70,11 @@ impl Api {
 
     #[inline]
     pub fn new(cookies: &str) -> Api {
+        let client = Client::builder()
+            .timeout(::std::time::Duration::from_secs(24 * 60 * 60))
+            .build().unwrap();
         Api {
-            client: Client::new(),
+            client: client,
             cookies: Cookies::new(cookies.to_string()),
             bdstoken: None,
         }
@@ -315,9 +318,7 @@ impl Api {
     pub fn search(&self,
                   keyword: &str,
                   dir: &str,
-                  recursion: bool,
-                  size: usize,
-                  page: usize) -> io::Result<JsonValue> {
+                  recursion: bool) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             SEARCH_URL,
             &[
@@ -860,8 +861,8 @@ impl Api {
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
             ]).unwrap();
         let headers = self.build_headers(None);
-        let mut part = reqwest::multipart::Part::file(local_path)?;
-        let mut part = part.file_name("");
+        let part = reqwest::multipart::Part::file(local_path)?;
+        let part = part.file_name("");
         let form = reqwest::multipart::Form::new().part("file", part);
         let mut resp = self.client.post(url)
             .headers(headers)
@@ -876,8 +877,40 @@ impl Api {
         Ok(v)
     }
 
-    //pub fn upload_slice(&self, local_path: &str, remote_path: &str) -> io::Result<JsonValue> {
-    //}
+    pub fn upload_slice(&self, block: &[u8], size: usize) -> io::Result<JsonValue> {
+        let url = Url::parse_with_params(
+            CPCS_URL,
+            &[
+                ("app_id", "250528"),
+                ("method", "upload"),
+                ("type", "tmpfile"),
+                ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
+            ]).unwrap();
+        let headers = self.build_headers(None);
+
+        //let block = block.to_vec();
+        // std::io::Read impl for &'static [u8]
+        //let part = reqwest::multipart::Part::reader(&block[..size]);
+        //
+        //let part = reqwest::multipart::Part::reader_with_length(block, block.len() as u64)
+            //.file_name("");
+
+        let part = reqwest::multipart::Part::new(Body::from(block[..size].to_vec()))
+            .file_name("");
+        let form = reqwest::multipart::Form::new()
+            .part("file", part);
+        let mut resp = self.client.post(url)
+            .headers(headers)
+            .multipart(form)
+            .send()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        if !resp.status().is_success() {
+            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+        }
+        let v = resp.json::<JsonValue>()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        Ok(v)
+    }
 
     //pub fn combine_file(&self, local_path: &str, remote_path: &str) -> io::Result<JsonValue> {
     //}
