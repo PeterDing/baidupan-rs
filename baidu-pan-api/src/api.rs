@@ -891,6 +891,8 @@ impl Api {
             ]).unwrap();
         let headers = self.build_headers(None);
 
+        // correct to build Part from &[u8]
+        // https://github.com/seanmonstar/reqwest/issues/215
         let block = block.to_vec();
         let size = block.len() as u64;
         let part = reqwest::multipart::Part::reader_with_length(Cursor::new(block), size)
