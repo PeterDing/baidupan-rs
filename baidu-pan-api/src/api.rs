@@ -6,6 +6,7 @@ use std::fs::File;
 use std::path::Path;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::io::Cursor;
 
 use reqwest;
 use reqwest::Client;
@@ -879,7 +880,7 @@ impl Api {
     }
 
     #[inline]
-    pub fn upload_slice(&self, block: &[u8], size: usize) -> io::Result<JsonValue> {
+    pub fn upload_slice(&self, block: &[u8]) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             CPCS_URL,
             &[
@@ -890,14 +891,9 @@ impl Api {
             ]).unwrap();
         let headers = self.build_headers(None);
 
-        //let block = block.to_vec();
-        // std::io::Read impl for &'static [u8]
-        //let part = reqwest::multipart::Part::reader(&block[..size]);
-        //
-        //let part = reqwest::multipart::Part::reader_with_length(block, block.len() as u64)
-            //.file_name("");
-
-        let part = reqwest::multipart::Part::new(Body::from(block[..size].to_vec()))
+        let block = block.to_vec();
+        let size = block.len() as u64;
+        let part = reqwest::multipart::Part::reader_with_length(Cursor::new(block), size)
             .file_name("");
         let form = reqwest::multipart::Form::new()
             .part("file", part);
