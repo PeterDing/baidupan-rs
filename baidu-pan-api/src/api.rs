@@ -54,6 +54,7 @@ literal_const! {
     FILEMANAGER_URL &'static str : "http://pan.baidu.com/api/filemanager",
     CLOUD_DL_URL &'static str : "http://pan.baidu.com/rest/2.0/services/cloud_dl",
     SHARE_URL &'static str : "http://pan.baidu.com/share/set",
+    TRANSFER_URL &'static str : "https://pan.baidu.com/share/transfer",
 
     OneK u64 : 1024,
     OneM u64 : 1024 * 1024,
@@ -1034,6 +1035,7 @@ impl Api {
         Ok(v)
     }
 
+    #[inline]
     pub fn shared_data(&self, shared_url: &str) -> io::Result<JsonValue> {
         let url = Url::parse(shared_url).unwrap();
         let headers = self.build_headers(None);
@@ -1062,6 +1064,46 @@ impl Api {
             ));
         };
         Ok(yundata)
+    }
+
+    pub fn transfer_file(&mut self, uk: &str, shareid: &str, path: &str, dir: &str) -> io::Result<JsonValue> {
+        let url = Url::parse_with_params(
+            TRANSFER_URL,
+            &[
+                ("from", uk),
+                ("web", "1"),
+                ("clienttype", "0"),
+                ("app_id", "250528"),
+                ("shareid", shareid),
+                ("channel", "chunlei"),
+                ("bdstoken", self.bdstoken().as_str()),
+            ],
+        ).unwrap();
+        let headers = self.build_headers(None);
+        let mut resp = self.client
+            .post(url)
+            .headers(headers)
+            .form(
+                &[
+                    (
+                        "filelist",
+                        serde_json::to_string(&json!([path])).unwrap().as_str(),
+                    ),
+                    ("path", dir),
+                ],
+            )
+            .send()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        if !resp.status().is_success() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
+        }
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
+        Ok(v)
     }
 }
 
