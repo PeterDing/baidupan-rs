@@ -68,12 +68,12 @@ pub struct Api {
 }
 
 impl Api {
-
     #[inline]
     pub fn new(cookies: &str) -> Api {
         let client = Client::builder()
             .timeout(::std::time::Duration::from_secs(24 * 60 * 60))
-            .build().unwrap();
+            .build()
+            .unwrap();
         Api {
             client: client,
             cookies: Cookies::new(cookies.to_string()),
@@ -101,7 +101,8 @@ impl Api {
         if let Some(raw_cookies) = response.headers().get_raw("Set-Cookie") {
             for raw_cookie in raw_cookies.iter() {
                 self.cookies.add(
-                    String::from_utf8(raw_cookie.to_vec()).unwrap());
+                    String::from_utf8(raw_cookie.to_vec()).unwrap(),
+                );
             }
         }
     }
@@ -123,9 +124,7 @@ impl Api {
         let url = Url::parse(HOME_URL).unwrap();
         //let url = Url::parse("http://127.0.0.1:9999").unwrap();
         let headers = self.build_headers(None);
-        let resp = self.client.get(url)
-            .headers(headers)
-            .send();
+        let resp = self.client.get(url).headers(headers).send();
         if let Err(_) = resp {
             return self.rbdstoken();
         }
@@ -142,7 +141,7 @@ impl Api {
         resp.read_to_string(&mut content);
 
         //for header in resp.headers().iter() {
-            //println!("{:?} {:?}", header.name(), header.raw());
+        //println!("{:?} {:?}", header.name(), header.raw());
         //}
 
         //println!("{:?}", resp.headers().get_raw("Set-Cookie"));
@@ -150,7 +149,7 @@ impl Api {
         //println!("{}", &content);
 
         if let Some(index) = content.find("\"bdstoken\"") {
-            let bdstoken = &content[index + 12 .. index + 12 + 32];
+            let bdstoken = &content[index + 12..index + 12 + 32];
             self.bdstoken = Some(String::from(bdstoken));
             println!("++++++++++++");
             return bdstoken.to_string();
@@ -171,23 +170,25 @@ impl Api {
     pub fn meta<T: Serialize>(&self, paths: &T) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             META_URL,
-            &[
-                ("method", "filemetas"),
-                ("dlink", "1"),
-                ("blocks", "0")
-            ]).unwrap();
+            &[("method", "filemetas"), ("dlink", "1"), ("blocks", "0")],
+        ).unwrap();
         let headers = self.build_headers(None);
         let data = serde_json::to_string(paths).unwrap();
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(&[("target", &data)])
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -195,25 +196,23 @@ impl Api {
     pub fn quota(&self) -> io::Result<JsonValue> {
         let url = Url::parse(QUOTA_URL).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
     #[inline]
-    pub fn file_list(&self,
-                 dir: &str,
-                 order: &str,
-                 desc: usize,
-                 size: usize,
-                 page: usize) -> io::Result<JsonValue> {
+    pub fn file_list(&self, dir: &str, order: &str, desc: usize, size: usize, page: usize) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             FILELIST_URL,
             &[
@@ -221,34 +220,40 @@ impl Api {
                 ("clienttype", "0"),
                 ("web", "1"),
                 ("showempty", "1"),
-                ("num", size.to_string().as_str()),   // max amount is 10000
+                ("num", size.to_string().as_str()), // max amount is 10000
                 ("t", get_time_string().as_str()),
                 ("dir", dir),
                 ("page", page.to_string().as_str()),
-                ("desc", desc.to_string().as_str()),   // 0 or 1
-                ("order", order),    // sort by name, or size, time
+                ("desc", desc.to_string().as_str()), // 0 or 1
+                ("order", order), // sort by name, or size, time
                 ("method", "filemetas"),
                 ("dlink", "1"),
                 ("blocks", "0"),
                 ("_", get_time_string().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
     #[inline]
     pub fn dlink(&self, path: &str) -> io::Result<String> {
-        Ok(format!("http://d.pcs.baidu.com/rest/2.0/pcs/file?method=download&app_id=250528&path={}&ver=2.0&clienttype=1",
-                   urlencode(path)))
+        Ok(format!(
+            "http://d.pcs.baidu.com/rest/2.0/pcs/file?method=download&app_id=250528&path={}&ver=2.0&clienttype=1",
+            urlencode(path)
+        ))
     }
 
     #[inline]
@@ -260,14 +265,17 @@ impl Api {
                 ("path", path),
                 ("type", "M3U8_AUTO_720"),
                 ("app_id", "250528"),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
         let mut v = String::new();
         resp.read_to_string(&mut v);
@@ -284,9 +292,11 @@ impl Api {
                 ("clienttype", "0"),
                 ("web", "1"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -294,65 +304,59 @@ impl Api {
                     ("isdir", "1"),
                     ("size", ""),
                     ("method", "post"),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         match v.get("errno") {
             Some(errno) => {
                 //if *errno == JsonValue::Number(0) {
-                if *errno == 0 {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            },
-            _ => Ok(false)
+                if *errno == 0 { Ok(true) } else { Ok(false) }
+            }
+            _ => Ok(false),
         }
     }
 
     #[inline]
-    pub fn search(&self,
-                  keyword: &str,
-                  dir: &str,
-                  recursion: bool) -> io::Result<JsonValue> {
+    pub fn search(&self, keyword: &str, dir: &str, recursion: bool) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             SEARCH_URL,
             &[
                 ("key", keyword),
                 ("dir", dir),
                 ("recursion", if recursion { "1" } else { "0" }),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
     #[inline]
     pub fn exist<T: Serialize>(&self, paths: &T) -> io::Result<bool> {
-        self.meta(paths).map(|v| {
-            match v.get("errno") {
-                Some(errno) => {
-                    if *errno == 0 {
-                        true
-                    } else {
-                        false
-                    }
-                },
-                _ => false
-            }
+        self.meta(paths).map(|v| match v.get("errno") {
+            Some(errno) => if *errno == 0 { true } else { false },
+            _ => false,
         })
     }
 
@@ -368,41 +372,44 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(&[("filelist", data)])
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         match v.get("errno") {
-            Some(errno) => {
-                if *errno == 0 {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            },
-            _ => Ok(false)
+            Some(errno) => if *errno == 0 { Ok(true) } else { Ok(false) },
+            _ => Ok(false),
         }
     }
 
     #[inline]
     pub fn move_files(&mut self, paths: &Vec<&str>, dir: &str) -> io::Result<bool> {
         let opera = "move";
-        let js_data: Vec<FileManagerData> = paths.iter().map(|path| {
-            let index = path.rfind("/").unwrap_or(0);
-            FileManagerData {
-                path: path.to_string(),
-                dest: dir.to_string(),
-                newname: path[index..].to_string(),
-            }
-        }).collect();
+        let js_data: Vec<FileManagerData> = paths
+            .iter()
+            .map(|path| {
+                let index = path.rfind("/").unwrap_or(0);
+                FileManagerData {
+                    path: path.to_string(),
+                    dest: dir.to_string(),
+                    newname: path[index..].to_string(),
+                }
+            })
+            .collect();
         let data = serde_json::to_string(&js_data).unwrap();
         self.file_operate(opera, data.as_str())
     }
@@ -418,7 +425,7 @@ impl Api {
                     dest: new_path[..index].to_string(),
                     newname: new_path[index..].to_string(),
                 }
-            }
+            },
         ];
         let data = serde_json::to_string(&js_data).unwrap();
         self.file_operate(opera, data.as_str())
@@ -435,7 +442,7 @@ impl Api {
                     dest: new_path[..index].to_string(),
                     newname: new_path[index..].to_string(),
                 }
-            }
+            },
         ];
         let data = serde_json::to_string(&js_data).unwrap();
         self.file_operate(opera, data.as_str())
@@ -444,14 +451,17 @@ impl Api {
     #[inline]
     pub fn copy_files2(&mut self, paths: &Vec<&str>, new_path: &str) -> io::Result<bool> {
         let opera = "copy";
-        let js_data: Vec<FileManagerData> = paths.iter().map(|path| {
-            let index = path.rfind("/").unwrap_or(0);
-            FileManagerData {
-                path: path.to_string(),
-                dest: new_path.to_string(),
-                newname: path[index..].to_string(),
-            }
-        }).collect();
+        let js_data: Vec<FileManagerData> = paths
+            .iter()
+            .map(|path| {
+                let index = path.rfind("/").unwrap_or(0);
+                FileManagerData {
+                    path: path.to_string(),
+                    dest: new_path.to_string(),
+                    newname: path[index..].to_string(),
+                }
+            })
+            .collect();
         let data = serde_json::to_string(&js_data).unwrap();
         self.file_operate(opera, data.as_str())
     }
@@ -473,9 +483,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -484,14 +496,19 @@ impl Api {
                     ("app_id", "250528"),
                     ("method", "add_task"),
                     ("source_url", task_url),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -505,9 +522,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -522,14 +541,19 @@ impl Api {
                     ("method", "add_task"),
                     ("selected_idx", selected_idx),
                     ("t", get_time_string().as_str()),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -543,9 +567,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -560,14 +586,19 @@ impl Api {
                     ("method", "add_task"),
                     ("selected_idx", selected_idx),
                     ("t", get_time_string().as_str()),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -581,9 +612,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -592,14 +625,19 @@ impl Api {
                     ("app_id", "250528"),
                     ("source_url", magnet),
                     ("method", "query_magnetinfo"),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -618,23 +656,26 @@ impl Api {
                 ("method", "query_sinfo"),
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
     #[inline]
-    pub fn tasks(&mut self, task_ids: &str) -> io::Result<JsonValue>
-    {
+    pub fn tasks(&mut self, task_ids: &str) -> io::Result<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -647,17 +688,21 @@ impl Api {
                 ("method", "query_task"),
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -677,17 +722,21 @@ impl Api {
                 ("need_task_info", "1"),
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -703,17 +752,21 @@ impl Api {
                 ("method", "clear_task"),
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -730,17 +783,21 @@ impl Api {
                 ("method", "cancel_task"),
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -754,9 +811,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -764,14 +823,19 @@ impl Api {
                     ("pwd", password),
                     ("channel_list", "[]"),
                     ("fid_list", serde_json::to_string(fs_ids).unwrap().as_str()),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -799,7 +863,7 @@ impl Api {
             digest.write(&buf[..r]);
 
             if r < OneM as usize {
-                break
+                break;
             }
         }
 
@@ -816,7 +880,7 @@ impl Api {
 
         //println!("--- {}", rpath.as_str());
         //println!("slice_md5: {}\ncontent_md5: {}\ncontent_crc32: {}\nsize: {}",
-                 //&slice_md5, &content_md5, &content_crc32, &size);
+        //&slice_md5, &content_md5, &content_crc32, &size);
 
         let url = Url::parse_with_params(
             CPCS_URL,
@@ -824,9 +888,11 @@ impl Api {
                 ("app_id", "250528"),
                 ("method", "rapidupload"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
@@ -836,14 +902,19 @@ impl Api {
                     ("content-md5", content_md5.as_str()),
                     ("content-crc32", content_crc32.to_string().as_str()),
                     ("content-length", size.to_string().as_str()),
-                ])
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -861,21 +932,27 @@ impl Api {
                 ("ondup", "overwrite"),
                 ("filename", filename.to_str().unwrap()),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
         let part = reqwest::multipart::Part::file(local_path)?;
         let part = part.file_name("");
         let form = reqwest::multipart::Form::new().part("file", part);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .multipart(form)
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -888,27 +965,31 @@ impl Api {
                 ("method", "upload"),
                 ("type", "tmpfile"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
 
         // correct to build Part from &[u8]
         // https://github.com/seanmonstar/reqwest/issues/215
         let block = block.to_vec();
         let size = block.len() as u64;
-        let part = reqwest::multipart::Part::reader_with_length(Cursor::new(block), size)
-            .file_name("");
-        let form = reqwest::multipart::Form::new()
-            .part("file", part);
-        let mut resp = self.client.post(url)
+        let part = reqwest::multipart::Part::reader_with_length(Cursor::new(block), size).file_name("");
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .multipart(form)
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
 
@@ -921,26 +1002,36 @@ impl Api {
                 ("ondup", "overwrite"),
                 ("method", "createsuperfile"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
-            ]).unwrap();
+            ],
+        ).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.post(url)
+        let mut resp = self.client
+            .post(url)
             .headers(headers)
             .form(
                 &[
-                    ("param", format!("{{\"block_list\":{}}}", serde_json::to_string(slice_md5s).unwrap())),
-                ])
+                    (
+                        "param",
+                        serde_json::to_string(&json!({
+                            "block_list": slice_md5s
+                        })).unwrap()
+                            .as_str(),
+                    ),
+                ],
+            )
             .send()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
         if !resp.status().is_success() {
-            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", resp.status())));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
         }
-        let v = resp.json::<JsonValue>()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
+        let v = resp.json::<JsonValue>().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
         Ok(v)
     }
-
-    //pub fn share_()
-
 }
 
 

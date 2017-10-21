@@ -20,7 +20,10 @@ pub fn urlencode(input: &str) -> String {
 }
 
 pub fn urldecode(input: &str) -> String {
-    percent_decode(input.as_bytes()).decode_utf8().unwrap().to_string()
+    percent_decode(input.as_bytes())
+        .decode_utf8()
+        .unwrap()
+        .to_string()
 }
 
 pub fn rand_md5() -> String {
