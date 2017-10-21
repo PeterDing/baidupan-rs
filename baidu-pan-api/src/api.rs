@@ -21,17 +21,18 @@ use serde::Serialize;
 use serde_json;
 use serde_json::Value as JsonValue;
 
-use common::HEADERS;
-use util;
-use util::{get_time_string, urlencode, rand_md5};
-use cookies::Cookies;
-
 use crypto::md5::Md5;
 use crypto::digest::Digest;
 
 use crc::crc32;
 use crc::Hasher32;
 
+use regex::Regex;
+
+use common::HEADERS;
+use util;
+use util::{get_time_string, urlencode, rand_md5};
+use cookies::Cookies;
 
 macro_rules! literal_const {
     ($($cst:ident $type:ty : $value:expr,)+) => (
@@ -1031,6 +1032,36 @@ impl Api {
             io::Error::new(io::ErrorKind::Other, format!("{}", e))
         })?;
         Ok(v)
+    }
+
+    pub fn shared_data(&self, shared_url: &str) -> io::Result<JsonValue> {
+        let url = Url::parse(shared_url).unwrap();
+        let headers = self.build_headers(None);
+        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("{}", e))
+        })?;
+        if !resp.status().is_success() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{}", resp.status()),
+            ));
+        }
+        let mut html = String::new();
+        resp.read_to_string(&mut html);
+
+        // find yundata
+        let re = Regex::new(r"yunData.setData\((.+?)\);").unwrap();
+        let yundata: JsonValue = if let Some(m) = re.captures(&html) {
+            serde_json::from_str(&m[1]).map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("{}", e))
+            })?
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Can't get shared_info `yundata`",
+            ));
+        };
+        Ok(yundata)
     }
 }
 
