@@ -1,7 +1,5 @@
 use std::io;
 use std::io::Read;
-use std::cell::RefCell;
-use std::borrow::Borrow;
 use std::fs::File;
 use std::path::Path;
 use std::io::Seek;
@@ -11,11 +9,11 @@ use std::io::Cursor;
 use reqwest;
 use reqwest::Client;
 use reqwest::Response;
-use reqwest::Body;
+//use reqwest::Body;
 use hyper::header::Headers;
 use url::Url;
 
-use time;
+//use time;
 
 use serde::Serialize;
 use serde_json;
@@ -33,6 +31,9 @@ use common::HEADERS;
 use util;
 use util::{get_time_string, urlencode, rand_md5};
 use cookies::Cookies;
+
+use errors::{ApiError, ApiErrorKind, ApiResult};
+
 
 macro_rules! literal_const {
     ($($cst:ident $type:ty : $value:expr,)+) => (
@@ -56,10 +57,20 @@ literal_const! {
     SHARE_URL &'static str : "http://pan.baidu.com/share/set",
     TRANSFER_URL &'static str : "https://pan.baidu.com/share/transfer",
 
-    OneK u64 : 1024,
-    OneM u64 : 1024 * 1024,
-    OneG u64 : 1024 * 1024 * 1024,
-    OneT u64 : 1024 * 1024 * 1024 * 1024,
+    ONE_K u64 : 1024,
+    ONE_M u64 : 1024 * 1024,
+    ONE_G u64 : 1024 * 1024 * 1024,
+    ONE_T u64 : 1024 * 1024 * 1024 * 1024,
+}
+
+macro_rules! valid_response {
+    ($resp:expr, $method:expr) => {
+        if !$resp.status().is_success() {
+            return bail!(ApiErrorKind::ResponseNoOk(
+                format!("[Api::{}] response.status is {}", $method, $resp.status()),
+            ));
+        }
+    }
 }
 
 
@@ -161,7 +172,7 @@ impl Api {
     }
 
     #[inline]
-    pub fn check_login(&self) -> io::Result<bool> {
+    pub fn check_login(&self) -> ApiResult<bool> {
         match self.meta(&["/"]) {
             Ok(_) => Ok(true),
             Err(e) => Err(e),
@@ -169,52 +180,40 @@ impl Api {
     }
 
     #[inline]
-    pub fn meta<T: Serialize>(&self, paths: &T) -> io::Result<JsonValue> {
+    pub fn meta<T: Serialize>(&self, paths: &T) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             META_URL,
             &[("method", "filemetas"), ("dlink", "1"), ("blocks", "0")],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let data = serde_json::to_string(paths).unwrap();
         let mut resp = self.client
             .post(url)
             .headers(headers)
             .form(&[("target", &data)])
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "meta");
+        //if !resp.status().is_success() {
+        //return bail!(ApiErrorKind::ResponseNoOk(
+        //format!("[Api::meta] response.status is {}", resp.status()),
+        //));
+        //}
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn quota(&self) -> io::Result<JsonValue> {
+    pub fn quota(&self) -> ApiResult<JsonValue> {
         let url = Url::parse(QUOTA_URL).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "quota");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn file_list(&self, dir: &str, order: &str, desc: usize, size: usize, page: usize) -> io::Result<JsonValue> {
+    pub fn file_list(&self, dir: &str, order: &str, desc: &str, size: usize, page: usize) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             FILELIST_URL,
             &[
@@ -226,32 +225,23 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("dir", dir),
                 ("page", page.to_string().as_str()),
-                ("desc", desc.to_string().as_str()), // 0 or 1
+                ("desc", desc), // 0 or 1
                 ("order", order), // sort by name, or size, time
                 ("method", "filemetas"),
                 ("dlink", "1"),
                 ("blocks", "0"),
                 ("_", get_time_string().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "file_list");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn dlink(&self, path: &str) -> io::Result<String> {
+    pub fn dlink(&self, path: &str) -> ApiResult<String> {
         Ok(format!(
             "http://d.pcs.baidu.com/rest/2.0/pcs/file?method=download&app_id=250528&path={}&ver=2.0&clienttype=1",
             urlencode(path)
@@ -259,7 +249,7 @@ impl Api {
     }
 
     #[inline]
-    fn m3u8(&self, path: &str) -> io::Result<String> {
+    fn m3u8(&self, path: &str) -> ApiResult<String> {
         let url = Url::parse_with_params(
             CPCS_URL,
             &[
@@ -268,24 +258,17 @@ impl Api {
                 ("type", "M3U8_AUTO_720"),
                 ("app_id", "250528"),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "m3u8");
         let mut v = String::new();
         resp.read_to_string(&mut v);
         Ok(v)
     }
 
     #[inline]
-    pub fn make_dir(&mut self, dir: &str) -> io::Result<bool> {
+    pub fn make_dir(&mut self, dir: &str) -> ApiResult<bool> {
         let url = Url::parse_with_params(
             CREATE_URL,
             &[
@@ -295,7 +278,7 @@ impl Api {
                 ("web", "1"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -308,17 +291,9 @@ impl Api {
                     ("method", "post"),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "make_dir");
+        let v = resp.json::<JsonValue>()?;
         match v.get("errno") {
             Some(errno) => {
                 //if *errno == JsonValue::Number(0) {
@@ -329,7 +304,7 @@ impl Api {
     }
 
     #[inline]
-    pub fn search(&self, keyword: &str, dir: &str, recursion: bool) -> io::Result<JsonValue> {
+    pub fn search(&self, keyword: &str, dir: &str, recursion: bool) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             SEARCH_URL,
             &[
@@ -337,25 +312,16 @@ impl Api {
                 ("dir", dir),
                 ("recursion", if recursion { "1" } else { "0" }),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "search");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn exist<T: Serialize>(&self, paths: &T) -> io::Result<bool> {
+    pub fn exist<T: Serialize>(&self, paths: &T) -> ApiResult<bool> {
         self.meta(paths).map(|v| match v.get("errno") {
             Some(errno) => if *errno == 0 { true } else { false },
             _ => false,
@@ -363,7 +329,7 @@ impl Api {
     }
 
     #[inline]
-    pub fn file_operate(&mut self, opera: &str, data: &str) -> io::Result<bool> {
+    pub fn file_operate(&mut self, opera: &str, data: &str) -> ApiResult<bool> {
         let url = Url::parse_with_params(
             FILEMANAGER_URL,
             &[
@@ -375,23 +341,15 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
             .headers(headers)
             .form(&[("filelist", data)])
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "file_operate");
+        let v = resp.json::<JsonValue>()?;
         match v.get("errno") {
             Some(errno) => if *errno == 0 { Ok(true) } else { Ok(false) },
             _ => Ok(false),
@@ -399,7 +357,7 @@ impl Api {
     }
 
     #[inline]
-    pub fn move_files(&mut self, paths: &Vec<&str>, dir: &str) -> io::Result<bool> {
+    pub fn move_files(&mut self, paths: &Vec<&str>, dir: &str) -> ApiResult<bool> {
         let opera = "move";
         let js_data: Vec<FileManagerData> = paths
             .iter()
@@ -412,12 +370,12 @@ impl Api {
                 }
             })
             .collect();
-        let data = serde_json::to_string(&js_data).unwrap();
+        let data = serde_json::to_string(&js_data)?;
         self.file_operate(opera, data.as_str())
     }
 
     #[inline]
-    pub fn rename_file(&mut self, path: &str, new_path: &str) -> io::Result<bool> {
+    pub fn rename_file(&mut self, path: &str, new_path: &str) -> ApiResult<bool> {
         let opera = "move";
         let js_data = vec![
             {
@@ -429,12 +387,12 @@ impl Api {
                 }
             },
         ];
-        let data = serde_json::to_string(&js_data).unwrap();
+        let data = serde_json::to_string(&js_data)?;
         self.file_operate(opera, data.as_str())
     }
 
     #[inline]
-    pub fn copy_files1(&mut self, path: &str, new_path: &str) -> io::Result<bool> {
+    pub fn copy_files1(&mut self, path: &str, new_path: &str) -> ApiResult<bool> {
         let opera = "copy";
         let js_data = vec![
             {
@@ -446,12 +404,12 @@ impl Api {
                 }
             },
         ];
-        let data = serde_json::to_string(&js_data).unwrap();
+        let data = serde_json::to_string(&js_data)?;
         self.file_operate(opera, data.as_str())
     }
 
     #[inline]
-    pub fn copy_files2(&mut self, paths: &Vec<&str>, new_path: &str) -> io::Result<bool> {
+    pub fn copy_files2(&mut self, paths: &Vec<&str>, new_path: &str) -> ApiResult<bool> {
         let opera = "copy";
         let js_data: Vec<FileManagerData> = paths
             .iter()
@@ -464,19 +422,19 @@ impl Api {
                 }
             })
             .collect();
-        let data = serde_json::to_string(&js_data).unwrap();
+        let data = serde_json::to_string(&js_data)?;
         self.file_operate(opera, data.as_str())
     }
 
     #[inline]
-    pub fn remove_files(&mut self, paths: &Vec<&str>) -> io::Result<bool> {
+    pub fn remove_files(&mut self, paths: &Vec<&str>) -> ApiResult<bool> {
         let opera = "delete";
-        let data = serde_json::to_string(paths).unwrap();
+        let data = serde_json::to_string(paths)?;
         self.file_operate(opera, data.as_str())
     }
 
     #[inline]
-    pub fn add_task(&mut self, task_url: &str, dir: &str) -> io::Result<JsonValue> {
+    pub fn add_task(&mut self, task_url: &str, dir: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -486,7 +444,7 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -500,22 +458,14 @@ impl Api {
                     ("source_url", task_url),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "add_task");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn add_bt(&mut self, path: &str, dir: &str, sha1: &str, selected_idx: &str, input: &str, vcode: &str) -> io::Result<JsonValue> {
+    pub fn add_bt(&mut self, path: &str, dir: &str, sha1: &str, selected_idx: &str, input: &str, vcode: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -525,7 +475,7 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -545,22 +495,14 @@ impl Api {
                     ("t", get_time_string().as_str()),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "add_bt");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn add_magnet(&mut self, magnet: &str, dir: &str, selected_idx: &str, input: &str, vcode: &str) -> io::Result<JsonValue> {
+    pub fn add_magnet(&mut self, magnet: &str, dir: &str, selected_idx: &str, input: &str, vcode: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -570,7 +512,7 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -590,22 +532,14 @@ impl Api {
                     ("t", get_time_string().as_str()),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "add_magnet");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn magnet_info(&mut self, magnet: &str) -> io::Result<JsonValue> {
+    pub fn magnet_info(&mut self, magnet: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -615,7 +549,7 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -629,22 +563,14 @@ impl Api {
                     ("method", "query_magnetinfo"),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "magnet_info");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn torrent_info(&mut self, path: &str) -> io::Result<JsonValue> {
+    pub fn torrent_info(&mut self, path: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -659,25 +585,16 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "torrent_info");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn tasks(&mut self, task_ids: &str) -> io::Result<JsonValue> {
+    pub fn tasks(&mut self, task_ids: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -691,25 +608,16 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "tasks");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn all_task_ids(&mut self) -> io::Result<JsonValue> {
+    pub fn all_task_ids(&mut self) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -725,25 +633,16 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "all_task_ids");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn clear_completed_tasks(&mut self) -> io::Result<JsonValue> {
+    pub fn clear_completed_tasks(&mut self) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -755,25 +654,16 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "clear_completed_tasks");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn cancel_task(&mut self, task_id: &str) -> io::Result<JsonValue> {
+    pub fn cancel_task(&mut self, task_id: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CLOUD_DL_URL,
             &[
@@ -786,25 +676,16 @@ impl Api {
                 ("t", get_time_string().as_str()),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "cancel_task");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn share<T: Serialize>(&mut self, fs_ids: &T, password: &str) -> io::Result<JsonValue> {
+    pub fn share<T: Serialize>(&mut self, fs_ids: &T, password: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             SHARE_URL,
             &[
@@ -814,7 +695,7 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -827,28 +708,20 @@ impl Api {
                     ("fid_list", serde_json::to_string(fs_ids).unwrap().as_str()),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "share");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn rapidupload_file(&self, local_path: &str, dir: &str) -> io::Result<JsonValue> {
+    pub fn rapidupload_file(&self, local_path: &str, dir: &str) -> ApiResult<JsonValue> {
         let metadata = ::std::fs::metadata(local_path)?;
         let size = metadata.len();
 
         let mut file = File::open(local_path)?;
 
-        let mut buf = [0; 256 * OneK as usize];
+        let mut buf = [0; 256 * ONE_K as usize];
         file.read(&mut buf);
         let slice_md5 = util::md5(&buf);
 
@@ -858,13 +731,13 @@ impl Api {
         let mut digest = crc32::Digest::new(crc32::IEEE);
 
         loop {
-            let mut buf = [0; OneM as usize];
+            let mut buf = [0; ONE_M as usize];
             let r = file.read(&mut buf).unwrap();
 
             sh.input(&buf[..r]);
             digest.write(&buf[..r]);
 
-            if r < OneM as usize {
+            if r < ONE_M as usize {
                 break;
             }
         }
@@ -891,7 +764,7 @@ impl Api {
                 ("method", "rapidupload"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -902,26 +775,18 @@ impl Api {
                     ("ondup", "overwrite"),
                     ("slice-md5", slice_md5.as_str()),
                     ("content-md5", content_md5.as_str()),
-                    ("content-crc32", content_crc32.to_string().as_str()),
+                    //("content-crc32", content_crc32.to_string().as_str()),
                     ("content-length", size.to_string().as_str()),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "rapidupload_file");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn upload_one_file(&self, local_path: &str, dir: &str) -> io::Result<JsonValue> {
+    pub fn upload_one_file(&self, local_path: &str, dir: &str) -> ApiResult<JsonValue> {
         let lpath = Path::new(local_path);
         let filename = lpath.file_name().unwrap();
 
@@ -935,7 +800,7 @@ impl Api {
                 ("filename", filename.to_str().unwrap()),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let part = reqwest::multipart::Part::file(local_path)?;
         let part = part.file_name("");
@@ -944,22 +809,14 @@ impl Api {
             .post(url)
             .headers(headers)
             .multipart(form)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "upload_one_file");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn upload_slice(&self, block: &[u8]) -> io::Result<JsonValue> {
+    pub fn upload_slice(&self, block: &[u8]) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CPCS_URL,
             &[
@@ -968,7 +825,7 @@ impl Api {
                 ("type", "tmpfile"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
 
         // correct to build Part from &[u8]
@@ -981,21 +838,13 @@ impl Api {
             .post(url)
             .headers(headers)
             .multipart(form)
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "upload_slice");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
-    pub fn combine_file<T: Serialize>(&self, remote_path: &str, slice_md5s: &T) -> io::Result<JsonValue> {
+    pub fn combine_file<T: Serialize>(&self, remote_path: &str, slice_md5s: &T) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             CPCS_URL,
             &[
@@ -1005,7 +854,7 @@ impl Api {
                 ("method", "createsuperfile"),
                 ("BDUSS", self.cookies.inner.get("BDUSS").unwrap().value()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
@@ -1021,52 +870,34 @@ impl Api {
                     ),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "combine_file");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 
     #[inline]
-    pub fn shared_data(&self, shared_url: &str) -> io::Result<JsonValue> {
+    pub fn shared_data(&self, shared_url: &str) -> ApiResult<JsonValue> {
         let url = Url::parse(shared_url).unwrap();
         let headers = self.build_headers(None);
-        let mut resp = self.client.get(url).headers(headers).send().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
+        let mut resp = self.client.get(url).headers(headers).send()?;
+        valid_response!(resp, "shared_data");
         let mut html = String::new();
         resp.read_to_string(&mut html);
 
         // find yundata
         let re = Regex::new(r"yunData.setData\((.+?)\);").unwrap();
         let yundata: JsonValue = if let Some(m) = re.captures(&html) {
-            serde_json::from_str(&m[1]).map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("{}", e))
-            })?
+            serde_json::from_str(&m[1])?
         } else {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Can't get shared_info `yundata`",
+            return bail!(ApiErrorKind::NoYunData(
+                "`yunData.setData` is not finded".to_string(),
             ));
         };
         Ok(yundata)
     }
 
-    pub fn transfer_file(&mut self, uk: &str, shareid: &str, path: &str, dir: &str) -> io::Result<JsonValue> {
+    pub fn transfer_file(&mut self, uk: &str, shareid: &str, path: &str, dir: &str) -> ApiResult<JsonValue> {
         let url = Url::parse_with_params(
             TRANSFER_URL,
             &[
@@ -1078,31 +909,20 @@ impl Api {
                 ("channel", "chunlei"),
                 ("bdstoken", self.bdstoken().as_str()),
             ],
-        ).unwrap();
+        )?;
         let headers = self.build_headers(None);
         let mut resp = self.client
             .post(url)
             .headers(headers)
             .form(
                 &[
-                    (
-                        "filelist",
-                        serde_json::to_string(&json!([path])).unwrap().as_str(),
-                    ),
+                    ("filelist", serde_json::to_string(&json!([path]))?.as_str()),
                     ("path", dir),
                 ],
             )
-            .send()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{}", e)))?;
-        if !resp.status().is_success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("{}", resp.status()),
-            ));
-        }
-        let v = resp.json::<JsonValue>().map_err(|e| {
-            io::Error::new(io::ErrorKind::Other, format!("{}", e))
-        })?;
+            .send()?;
+        valid_response!(resp, "transfer_file");
+        let v = resp.json::<JsonValue>()?;
         Ok(v)
     }
 }
